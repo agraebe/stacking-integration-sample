@@ -21,6 +21,7 @@ const {
   SmartContractsApi,
   Configuration,
   TransactionsApi,
+  connectWebSocketClient,
 } = require("@stacks/blockchain-api-client");
 const c32 = require("c32check");
 
@@ -249,5 +250,38 @@ router.get("/stacker-info", async function (req, res, next) {
 
   res.json({ response });
 });
+
+/* GET stacker info */
+router.get("/ping-tx", async function (req, res, next) {
+  subscribeForTransactionCompletion(
+    "0x7ab7da60d159e444062f76694fa9e08c03d3fb4c3776f6880a772987076ba9bd"
+  );
+});
+
+async function pollForTransactionSuccess(txId) {
+  const tx = new TransactionsApi(apiConfig);
+  let resp;
+  const intervalID = setInterval(async () => {
+    resp = await tx.getTransactionById({ txId });
+    console.log(resp);
+    if (resp.tx_status === "success") {
+      // stop polling
+      clearInterval(intervalID);
+      return resp;
+    }
+  }, 3000);
+}
+
+async function subscribeForTransactionCompletion(txId) {
+  const client = await connectWebSocketClient(
+    "ws://stacks-node-api.blockstack.org/"
+  );
+
+  const sub = await client.subscribeAddressTransactions(txId, (event) => {
+    console.log(event);
+  });
+
+  await sub.unsubscribe();
+}
 
 module.exports = router;
