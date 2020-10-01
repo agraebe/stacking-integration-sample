@@ -14,6 +14,7 @@ const {
   serializeCV,
   deserializeCV,
   cvToString,
+  broadcastTransaction,
 } = require("@blockstack/stacks-transactions");
 const {
   InfoApi,
@@ -102,7 +103,7 @@ router.get("/user", async function (req, res, next) {
   const poxInfo = await info.getPoxInfo();
 
   const accountBalance = await accounts.getAccountBalance({
-    stxAddress,
+    principal: stxAddress,
   });
 
   const accountSTXBalance = accountBalance.stx.balance;
@@ -211,15 +212,11 @@ router.get("/stack", async function (req, res, next) {
 
   const transaction = await makeContractCall(txOptions);
 
-  const rawTx = transaction.serialize().toString("hex");
-
-  const contractCall = await tx.postCoreNodeTransactions({
-    body: rawTx,
-  });
+  const contractCall = await broadcastTransaction(transaction, network);
 
   console.log(contractCall);
 
-  res.json({ contractCall });
+  res.json({ txId: contractCall.txid });
 });
 
 /* GET stacker info */
@@ -251,7 +248,6 @@ router.get("/stacker-info", async function (req, res, next) {
   res.json({ response });
 });
 
-/* GET stacker info */
 router.get("/ping-tx", async function (req, res, next) {
   subscribeForTransactionCompletion(
     "0x7ab7da60d159e444062f76694fa9e08c03d3fb4c3776f6880a772987076ba9bd"
