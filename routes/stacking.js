@@ -14,7 +14,6 @@ const {
   serializeCV,
   deserializeCV,
   cvToString,
-  makeContractSTXPostCondition,
 } = require("@blockstack/stacks-transactions");
 const {
   InfoApi,
@@ -36,7 +35,7 @@ const apiConfig = new Configuration({
 const privateKey = makeRandomPrivKey();
 
 // get Stacks address
-const principal = getAddressFromPrivateKey(
+const stxAddress = getAddressFromPrivateKey(
   privateKeyToString(privateKey),
   TransactionVersion.Testnet
 );
@@ -102,7 +101,7 @@ router.get("/user", async function (req, res, next) {
   const poxInfo = await info.getPoxInfo();
 
   const accountBalance = await accounts.getAccountBalance({
-    principal,
+    stxAddress,
   });
 
   const accountSTXBalance = accountBalance.stx.balance;
@@ -111,8 +110,8 @@ router.get("/user", async function (req, res, next) {
   const canParticipate = accountSTXBalance >= poxInfo.min_amount_ustx;
 
   res.json({
-    stxAddress: principal,
-    btcAddress: c32.c32ToB58(principal),
+    stxAddress,
+    btcAddress: c32.c32ToB58(stxAddress),
     accountSTXBalance,
     canParticipate,
   });
@@ -136,7 +135,7 @@ router.get("/eligible", async function (req, res, next) {
 
   // generate BTC from Stacks address
   const hashbytes = bufferCV(
-    Buffer.from(c32.c32addressDecode(principal)[1], "hex")
+    Buffer.from(c32.c32addressDecode(stxAddress)[1], "hex")
   );
   const version = bufferCV(Buffer.from("01", "hex"));
 
@@ -145,7 +144,7 @@ router.get("/eligible", async function (req, res, next) {
     contractName,
     functionName,
     readOnlyFunctionArgs: {
-      sender: principal,
+      sender: stxAddress,
       arguments: [
         `0x${serializeCV(
           tupleCV({
@@ -183,7 +182,7 @@ router.get("/stack", async function (req, res, next) {
 
   // generate BTC from Stacks address
   const hashbytes = bufferCV(
-    Buffer.from(c32.c32addressDecode(principal)[1], "hex")
+    Buffer.from(c32.c32addressDecode(stxAddress)[1], "hex")
   );
   const version = bufferCV(Buffer.from("01", "hex"));
 
@@ -237,9 +236,9 @@ router.get("/stacker-info", async function (req, res, next) {
     contractName,
     functionName,
     readOnlyFunctionArgs: {
-      sender: principal,
+      sender: stxAddress,
       arguments: [
-        `0x${serializeCV(standardPrincipalCV(principal)).toString("hex")}`,
+        `0x${serializeCV(standardPrincipalCV(stxAddress)).toString("hex")}`,
       ],
     },
   });
