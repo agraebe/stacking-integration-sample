@@ -6,8 +6,8 @@
     "dev": "nodemon ./bin/www"
   },
   "dependencies": {
-    "@blockstack/stacks-transactions": "^0.6.0",
-    "@stacks/blockchain-api-client": "^0.21.0",
+    "@blockstack/stacks-transactions": "^0.7.0",
+    "@stacks/blockchain-api-client": "^0.25.2",
     "c32check": "^1.1.2",
     "cookie-parser": "~1.4.4",
     "debug": "~2.6.9",

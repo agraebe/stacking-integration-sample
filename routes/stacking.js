@@ -126,7 +126,7 @@ router.get("/eligible", async function (req, res, next) {
   const smartContracts = new SmartContractsApi(apiConfig);
   const poxInfo = await info.getPoxInfo();
 
-  const stacksAddress = poxInfo.contract_id.split(".")[0];
+  const contractAddress = poxInfo.contract_id.split(".")[0];
   const contractName = poxInfo.contract_id.split(".")[1];
   const functionName = "can-stack-stx";
 
@@ -143,7 +143,7 @@ router.get("/eligible", async function (req, res, next) {
   const version = bufferCV(Buffer.from("01", "hex"));
 
   const isEligible = await smartContracts.callReadOnlyFunction({
-    stacksAddress,
+    contractAddress,
     contractName,
     functionName,
     readOnlyFunctionArgs: {
@@ -231,7 +231,7 @@ router.get("/stacker-info", async function (req, res, next) {
   const functionName = "get-stacker-info";
 
   const stackingInfo = await smartContracts.callReadOnlyFunction({
-    stacksAddress: contractAddress,
+    contractAddress,
     contractName,
     functionName,
     readOnlyFunctionArgs: {
