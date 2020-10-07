@@ -1,6 +1,8 @@
 var express = require("express");
 var router = express.Router();
 
+const BN = require("bn.js");
+const fetch = require("cross-fetch");
 const {
   makeRandomPrivKey,
   privateKeyToString,
@@ -107,15 +109,16 @@ router.get("/user", async function (req, res, next) {
     principal: stxAddress,
   });
 
-  const accountSTXBalance = accountBalance.stx.balance;
+  const accountSTXBalance = new BN(accountBalance.stx.balance, 10);
+  const minAmountSTX = new BN(poxInfo.min_amount_ustx, 10);
 
   // enough balance for participation?
-  const canParticipate = accountSTXBalance >= poxInfo.min_amount_ustx;
+  const canParticipate = accountSTXBalance.cmp(minAmountSTX) >= 0;
 
   res.json({
     stxAddress,
     btcAddress: c32.c32ToB58(stxAddress),
-    accountSTXBalance,
+    accountSTXBalance: accountSTXBalance.toNumber(),
     canParticipate,
   });
 });
