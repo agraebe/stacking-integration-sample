@@ -25,6 +25,7 @@ const {
   SmartContractsApi,
   Configuration,
   TransactionsApi,
+  FeesApi,
   connectWebSocketClient,
 } = require("@stacks/blockchain-api-client");
 const c32 = require("c32check");
@@ -35,6 +36,16 @@ const apiConfig = new Configuration({
   // basePath: "http://localhost:20443",
   basePath: "https://stacks-node-api.blockstack.org",
 });
+
+// initialize all API objects
+const info = new InfoApi(apiConfig);
+const fees = new FeesApi(apiConfig);
+const smartContracts = new SmartContractsApi(apiConfig);
+const accounts = new AccountsApi(apiConfig);
+const tx = new TransactionsApi(apiConfig);
+
+// initialize network (testnet)
+const network = new StacksTestnet();
 
 // generate random key
 const privateKey = makeRandomPrivKey();
@@ -47,7 +58,6 @@ const stxAddress = getAddressFromPrivateKey(
 
 /* GET stacking info. */
 router.get("/info", async function (req, res, next) {
-  const info = new InfoApi(apiConfig);
 
   const poxInfo = await info.getPoxInfo();
   const coreInfo = await info.getCoreApiInfo();
@@ -56,7 +66,7 @@ router.get("/info", async function (req, res, next) {
   console.log({ poxInfo, coreInfo, blocktimeInfo });
 
   // will Stacking be executed in the next cycle?
-  const stackingExecution = poxInfo.rejection_votes_left_required > 0;
+  const stackingExecution = (poxInfo.rejection_votes_left_required | 1) > 0;
 
   // how long (in seconds) is a Stacking cycle?
   const cycleDuration =
@@ -87,6 +97,14 @@ router.get("/info", async function (req, res, next) {
         blocktimeInfo.testnet.target_block_time
   );
 
+  // minimum microstack should include the transaction fees for stacking
+  const feeRate = await fees.getFeeTransfer() | 1;
+  const sampleTx = await generateStackingTransaction();
+  const txBytes = sampleTx.serialize().toString('hex').length;
+  const minimumUSTX = poxInfo.min_amount_ustx + Math.ceil(feeRate * txBytes);
+
+  console.log(feeRate, txBytes, minimumUSTX);
+
   res.json({
     stackingExecution,
     cycleDuration,
@@ -94,15 +112,12 @@ router.get("/info", async function (req, res, next) {
     nextCycleStartingAt,
     numberOfCycles,
     unlockingAt,
-    minimumUSTX: poxInfo.min_amount_ustx,
+    minimumUSTX,
   });
 });
 
 /* GET cycle details. */
 router.get("/user", async function (req, res, next) {
-  const info = new InfoApi(apiConfig);
-  const accounts = new AccountsApi(apiConfig);
-
   const poxInfo = await info.getPoxInfo();
 
   const accountBalance = await accounts.getAccountBalance({
@@ -125,8 +140,6 @@ router.get("/user", async function (req, res, next) {
 
 /* GET eligibility details. */
 router.get("/eligible", async function (req, res, next) {
-  const info = new InfoApi(apiConfig);
-  const smartContracts = new SmartContractsApi(apiConfig);
   const poxInfo = await info.getPoxInfo();
 
   const contractAddress = poxInfo.contract_id.split(".")[0];
@@ -135,6 +148,7 @@ router.get("/eligible", async function (req, res, next) {
 
   let microSTXoLockup = poxInfo.min_amount_ustx;
   let numberOfCycles = 3;
+  let nextRewardCycle = poxInfo.reward_cycle_id + 1;
 
   // note: if this isn't working, check the local node logs:
   // https://docs.blockstack.org/mining
@@ -159,7 +173,7 @@ router.get("/eligible", async function (req, res, next) {
           })
         ).toString("hex")}`,
         `0x${serializeCV(uintCV(microSTXoLockup)).toString("hex")}`,
-        `0x${serializeCV(uintCV(poxInfo.reward_cycle_id)).toString("hex")}`,
+        `0x${serializeCV(uintCV(nextRewardCycle)).toString("hex")}`,
         `0x${serializeCV(uintCV(numberOfCycles)).toString("hex")}`,
       ],
     },
@@ -179,42 +193,7 @@ router.get("/eligible", async function (req, res, next) {
 
 /* GET stack STX */
 router.get("/stack", async function (req, res, next) {
-  const info = new InfoApi(apiConfig);
-  const tx = new TransactionsApi(apiConfig);
-  const poxInfo = await info.getPoxInfo();
-
-  let microSTXoLockup = poxInfo.min_amount_ustx;
-  let numberOfCycles = 3;
-
-  // generate BTC from Stacks address
-  const hashbytes = bufferCV(
-    Buffer.from(c32.c32addressDecode(stxAddress)[1], "hex")
-  );
-  const version = bufferCV(Buffer.from("01", "hex"));
-
-  const contractAddress = poxInfo.contract_id.split(".")[0];
-  const contractName = poxInfo.contract_id.split(".")[1];
-  const functionName = "stack-stx";
-  const network = new StacksTestnet();
-
-  const txOptions = {
-    contractAddress,
-    contractName,
-    functionName,
-    functionArgs: [
-      uintCV(microSTXoLockup),
-      tupleCV({
-        hashbytes,
-        version,
-      }),
-      uintCV(numberOfCycles),
-    ],
-    senderKey: privateKey.data.toString("hex"),
-    validateWithAbi: true,
-    network,
-  };
-
-  const transaction = await makeContractCall(txOptions);
+  const transaction = generateStackingTransaction();
 
   const contractCall = await broadcastTransaction(transaction, network);
 
@@ -225,8 +204,6 @@ router.get("/stack", async function (req, res, next) {
 
 /* GET stacker info */
 router.get("/stacker-info", async function (req, res, next) {
-  const info = new InfoApi(apiConfig);
-  const smartContracts = new SmartContractsApi(apiConfig);
   const poxInfo = await info.getPoxInfo();
 
   const contractAddress = poxInfo.contract_id.split(".")[0];
@@ -269,7 +246,6 @@ router.get("/ping-tx", async function (req, res, next) {
 });
 
 async function pollForTransactionSuccess(txId) {
-  const tx = new TransactionsApi(apiConfig);
   let resp;
   const intervalID = setInterval(async () => {
     resp = await tx.getTransactionById({ txId });
@@ -292,6 +268,39 @@ async function subscribeForTransactionCompletion(txId) {
   });
 
   await sub.unsubscribe();
+}
+
+async function generateStackingTransaction() {
+  const poxInfo = await info.getPoxInfo();
+  const coreInfo = await info.getCoreApiInfo();
+
+  let microSTXoLockup = poxInfo.min_amount_ustx;
+  let numberOfCycles = 3;
+  let nextBurnHeight = coreInfo.burn_block_height + 1;
+
+  // generate BTC from Stacks address
+  const hashbytes = bufferCV(
+    Buffer.from(c32.c32addressDecode(stxAddress)[1], "hex")
+  );
+  const version = bufferCV(Buffer.from("01", "hex"));
+
+  return makeContractCall({
+    contractAddress: poxInfo.contract_id.split(".")[0],
+    contractName: poxInfo.contract_id.split(".")[1],
+    functionName: "stack-stx",
+    functionArgs: [
+      uintCV(microSTXoLockup),
+      tupleCV({
+        hashbytes,
+        version,
+      }),
+      uintCV(nextBurnHeight),
+      uintCV(numberOfCycles),
+    ],
+    senderKey: privateKey.data.toString("hex"),
+    validateWithAbi: true,
+    network,
+  });
 }
 
 module.exports = router;
